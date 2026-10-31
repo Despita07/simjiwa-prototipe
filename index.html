@@ -28,7 +28,9 @@ const chat=document.getElementById('chatMessages');
 function bubble(text,type){const d=document.createElement('div');d.className='bubble '+type;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;return d;}
 const aiModeBadge=document.getElementById('aiModeBadge');
 let genAIAvailable=false;
-async function checkAIBackend(){try{const r=await fetch('/api/health',{headers:{'Accept':'application/json'}});if(r.ok){const d=await r.json();genAIAvailable=!!d.aiEnabled;}}catch{}aiModeBadge.textContent=genAIAvailable?'Generative AI aktif':'Mode demo lokal';aiModeBadge.title=genAIAvailable?'Respons dianalisis oleh model Generative AI melalui backend aman.':'Backend AI belum tersambung; umpan balik demo lokal digunakan.';}
+// Ganti URL ini setelah backend Render aktif. Jangan letakkan API key di file frontend.
+const SIMJIWA_API_BASE='https://GANTI-DENGAN-URL-RENDER-ANDA';
+async function checkAIBackend(){try{if(SIMJIWA_API_BASE.includes('GANTI-DENGAN-URL-RENDER-ANDA'))throw new Error('Backend belum dikonfigurasi');const r=await fetch(SIMJIWA_API_BASE+'/api/health',{headers:{'Accept':'application/json'}});if(r.ok){const d=await r.json();genAIAvailable=!!d.aiEnabled;}}catch{}aiModeBadge.textContent=genAIAvailable?'Generative AI aktif':'Mode demo lokal';aiModeBadge.title=genAIAvailable?'Respons dianalisis oleh model Generative AI melalui backend aman.':'Backend AI belum tersambung; umpan balik demo lokal digunakan.';}
 function localContextFeedback(answer,history){
  const t=answer.toLowerCase();
  const hasEmpathy=/(memahami|terbayang|pasti terasa|terdengar berat|takut|cemas|perasaan|sedih|khawatir|saya mengerti)/i.test(t);
@@ -52,7 +54,7 @@ document.getElementById('chatForm').addEventListener('submit',async e=>{
  const pending=bubble('Sedang menilai respons berdasarkan konteks…','ai');
  const history=[...chat.querySelectorAll('.bubble')].filter(x=>x!==pending).slice(-8).map(x=>({role:x.classList.contains('user')?'student':'assistant',text:x.textContent}));
  try{
-  const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({scenario:'Klien fiktif berkata: “Saya takut. Suara itu muncul lagi dan saya tidak tahu harus bagaimana.”',studentResponse:v,conversationHistory:history})});
+  const response=await fetch(SIMJIWA_API_BASE+'/api/feedback',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({scenario:'Klien fiktif berkata: “Saya takut. Suara itu muncul lagi dan saya tidak tahu harus bagaimana.”',studentResponse:v,conversationHistory:history})});
   if(!response.ok)throw new Error('Backend tidak tersedia');const data=await response.json();if(!data.feedback)throw new Error('Respons AI kosong');pending.textContent=(data.mode==='generative-ai'?'Jiwa-AI · Generative AI\n':'Jiwa-AI · Demo lokal\n')+data.feedback;
   if(data.mode==='generative-ai'){genAIAvailable=true;aiModeBadge.textContent='Generative AI aktif';}else{genAIAvailable=false;aiModeBadge.textContent='Mode demo lokal';}
  }catch(err){pending.textContent=localContextFeedback(v,history);aiModeBadge.textContent='Mode demo lokal';}
