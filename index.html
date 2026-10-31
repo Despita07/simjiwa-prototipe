@@ -38,7 +38,39 @@ function localContextFeedback(answer,history){
  const hasSafety=/(aman|keselamatan|membahayakan|bahaya|perintah|terdorong|melukai|mencederai|risiko|mengikuti suara)/i.test(t);
  const dismissive=/(jangan mengada|berhenti saja|tidak nyata|cuma khayalan|aneh|bohong|jangan dipikirkan)/i.test(t);
  const reinforces=/(suara itu benar|ikuti saja suara|suara itu pasti benar|lakukan yang suara suruh)/i.test(t);
- let out='Umpan balik demo lokal (belum terhubung ke Generative AI):\n';
+ let out=
+const API_URL =
+  "https://simjiwa-ai-backend.despita-pramesti.workers.dev";
+
+async function kirimKeGemini(scenario, studentResponse) {
+  try {
+    const response = await fetch(`${API_URL}/api/feedback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        scenario: scenario,
+        studentResponse: studentResponse
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.ok) {
+      throw new Error(
+        data.error || "Gemini AI gagal memberikan respons."
+      );
+    }
+
+    return data.feedback;
+
+  } catch (error) {
+    console.error("Kesalahan Gemini AI:", error);
+    throw error;
+  }
+}
+
  if(dismissive||reinforces){out+='• Prioritas perbaikan: jangan meremehkan pengalaman atau membenarkan isi halusinasi.\n• Coba akui emosi klien tanpa menyatakan suara itu benar, lalu lanjutkan pengkajian dengan tenang.\n';}
  else {
   out+='• Empati: '+(hasEmpathy?'sudah tampak dalam respons.':'belum cukup jelas; akui rasa takut/cemas klien secara eksplisit.')+'\n';
