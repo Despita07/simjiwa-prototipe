@@ -32,7 +32,26 @@ const SIMJIWA_API_BASE =
   "https://simjiwa-ai-backend.despita-pramesti.workers.dev";
 
 let genAIAvailable = false;
-async function checkAIBackend(){try{if(SIMJIWA_API_BASE.includes('https://simjiwa-ai-backend.despita-pramesti.workers.dev'))throw new Error('Backend belum dikonfigurasi');const r=await fetch(SIMJIWA_API_BASE+'/api/health',{headers:{'Accept':'application/json'}});if(r.ok){const d=await r.json();genAIAvailable=!!d.aiEnabled;}}catch{}aiModeBadge.textContent=genAIAvailable?'Generative AI aktif':'Mode demo lokal';aiModeBadge.title=genAIAvailable?'Respons dianalisis oleh model Generative AI melalui backend aman.':'Backend AI belum tersambung; umpan balik demo lokal digunakan.';}
+async function checkAIBackend(){
+  aiModeBadge.textContent='Memeriksa koneksi backend…';
+  try {
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),12000);
+    let r;
+    try { r=await fetch(`${SIMJIWA_API_BASE}/api/health`,{method:'GET',headers:{'Accept':'application/json'},cache:'no-store',signal:controller.signal}); }
+    finally { clearTimeout(timer); }
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error||`Health check gagal (HTTP ${r.status}).`);
+    genAIAvailable=d.ok===true && d.aiEnabled===true;
+    aiModeBadge.textContent=genAIAvailable?'Backend tersambung · AI siap':'Backend aktif · API key belum aktif';
+    aiModeBadge.title=genAIAvailable?`Backend aktif. Model: ${d.model||'model server'}.`:'Worker merespons, tetapi GEMINI_API_KEY belum terdeteksi.';
+    return genAIAvailable;
+  } catch(err) {
+    genAIAvailable=false; aiModeBadge.textContent='Backend tidak terjangkau';
+    aiModeBadge.title=err.name==='AbortError'?'Pemeriksaan koneksi melewati batas waktu.':err.message;
+    console.error('Pemeriksaan backend SIMJIWA gagal:',err); return false;
+  }
+}
 function localContextFeedback(answer, history) {
   const t = answer.toLowerCase();
   const hasEmpathy = /(memahami|terbayang|pasti terasa|terdengar berat|takut|cemas|perasaan|sedih|khawatir|saya mengerti)/i.test(t);
@@ -53,16 +72,29 @@ function localContextFeedback(answer, history) {
   return out;
 }
 document.getElementById('chatForm').addEventListener('submit',async e=>{
- e.preventDefault();const input=document.getElementById('chatInput'),v=input.value.trim();if(!v)return;
- bubble(v,'user');input.value='';const send=document.querySelector('#chatForm button[type="submit"]');send.disabled=true;send.textContent='Menganalisis…';
- const pending=bubble('Sedang menilai respons berdasarkan konteks…','ai');
+ e.preventDefault();
+ const input=document.getElementById('chatInput'),v=input.value.trim(); if(!v)return;
+ bubble(v,'user'); input.value='';
+ const send=document.querySelector('#chatForm button[type="submit"]'); send.disabled=true; send.textContent='Menghubungkan…';
+ const pending=bubble('Menghubungkan ke Jiwa-AI…','ai');
  const history=[...chat.querySelectorAll('.bubble')].filter(x=>x!==pending).slice(-8).map(x=>({role:x.classList.contains('user')?'student':'assistant',text:x.textContent}));
- try{
-  const response=await fetch(SIMJIWA_API_BASE+'/api/feedback',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({scenario:'Klien fiktif berkata: “Saya takut. Suara itu muncul lagi dan saya tidak tahu harus bagaimana.”',studentResponse:v,conversationHistory:history})});
-  if(!response.ok)throw new Error('Backend tidak tersedia');const data=await response.json();if(!data.feedback)throw new Error('Respons AI kosong');pending.textContent=(data.mode==='generative-ai'?'Jiwa-AI · Generative AI\n':'Jiwa-AI · Demo lokal\n')+data.feedback;
-  if(data.mode==='generative-ai'){genAIAvailable=true;aiModeBadge.textContent='Generative AI aktif';}else{genAIAvailable=false;aiModeBadge.textContent='Mode demo lokal';}
- }catch(err){pending.textContent=localContextFeedback(v,history);aiModeBadge.textContent='Mode demo lokal';}
- finally{send.disabled=false;send.textContent='Kirim';input.focus();chat.scrollTop=chat.scrollHeight;}
+ try {
+  const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),45000); let response;
+  try {
+   response=await fetch(`${SIMJIWA_API_BASE}/api/feedback`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({scenario:'Klien fiktif berkata: “Saya takut. Suara itu muncul lagi dan saya tidak tahu harus bagaimana.”',studentResponse:v,conversationHistory:history}),signal:controller.signal,cache:'no-store'});
+  } finally { clearTimeout(timer); }
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok || data.ok===false) throw new Error(`${data.error||data.message||`Server mengembalikan HTTP ${response.status}.`} (HTTP ${response.status})`);
+  const feedback=data.feedback||data.result||data.reply||data.text;
+  if(typeof feedback!=='string'||!feedback.trim()) throw new Error('Backend merespons, tetapi teks umpan balik kosong.');
+  pending.textContent='Jiwa-AI · Generative AI\n'+feedback.trim(); genAIAvailable=true;
+  aiModeBadge.textContent='Generative AI aktif'; aiModeBadge.title=`Respons berasal dari ${data.provider||'Google Gemini'} · ${data.model||'model backend'}.`;
+ } catch(err) {
+  genAIAvailable=false;
+  const detail=err.name==='AbortError'?'Permintaan melewati batas waktu 45 detik.':err.message==='Failed to fetch'?'Browser tidak dapat mengakses backend. Periksa CORS Cloudflare Worker, koneksi internet, dan URL backend.':err.message;
+  pending.textContent='Jiwa-AI · Belum terhubung ke Generative AI\n\nDetail kendala: '+detail+'\n\nUmpan balik demo lokal (bukan jawaban Gemini):\n'+localContextFeedback(v,history);
+  aiModeBadge.textContent='AI gagal · Demo lokal tersedia'; aiModeBadge.title=detail; console.error('Pengiriman ke Gemini gagal:',err);
+ } finally { send.disabled=false; send.textContent='Kirim'; input.focus(); chat.scrollTop=chat.scrollHeight; }
 });
 document.getElementById('clearChat').addEventListener('click',()=>{chat.innerHTML='';bubble('Percakapan dibersihkan. Silakan mulai latihan baru dengan kasus fiktif.','ai');});
 checkAIBackend();
